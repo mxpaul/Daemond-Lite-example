@@ -1,0 +1,110 @@
+#!/usr/bin/env perl
+###############################################################################
+# Here is a minimalistic perl daemon example. This daemon just able to start 
+# some children, every child will print a log message every second.
+###############################################################################
+use strict;
+use warnings;
+
+our $VERSION = '0.01';
+
+use Data::Dumper;$Data::Dumper::Useqq = 1;
+# Here is usual stuff for testing perl daemon within distribution.
+# Otherwise we had to install distribution on every change to included libraries
+use FindBin;
+use lib
+	"$FindBin::Bin/../lib",
+	glob("$FindBin::Bin/../libs/*/lib"),
+	glob("$FindBin::Bin/../libs/*/blib/lib"),
+	glob("$FindBin::Bin/../libs/*/blib/arch"),
+;
+use Daemond::Lite;
+use EV;
+use AnyEvent;
+
+name     'mockdaemon';
+config   './mockdaemon.conf';
+children 1;
+pid      '%n.%u.pid';
+
+
+=head2 check
+
+	Daemond::Lite calls check() to let us check configuration file content
+	and set default values.
+	Call die() to prevent daemon to start ( if your config contains fatal errors, for example)
+
+=cut
+
+sub check {
+	my $self = shift;
+	my $this = $self->{this};
+
+	for (qw(dummy_param) ){
+		exists $self->{cfg}{$_} and $self->{cfg}{$_} ne 'FIXME' or die "Configuration mismatch: parameter \"$_\" is required";
+	}
+	
+	$this->{cfg} = $self->{cfg};
+}
+
+=head2 start
+
+	Daemond::Lite calls start before fork, this is where we want to bind our network stuff, like HTTP server, etc.
+
+=cut
+
+sub start {
+	my $self = shift;
+	my $this = $self->{this};
+	$self->log->debug("Daemon starting");
+}
+
+=head2 abort
+
+	Here is an example of abort function which is called when child is aborted.
+
+	sub abort {
+		my $this = shift;
+		$this->log->critical(@_);
+		kill TERM => getppid();
+		EV::unloop;
+		exit 255;
+	}
+=cut
+
+=head2 run
+
+	Each Daemond::Lite child calls run(). It should enter event loop, otherwise child will exit.
+
+=cut
+
+sub run {
+	my $self = shift;
+	my $this = $self->{this};
+
+	# All useful child activity is here
+	# In this simple case we just add a log message every second
+	my $msg_counter;
+	my $t; $t= AE::timer 0, 1, sub { $self->log->info('Still running %d, my dummy parameter is %s', ++$msg_counter, $self->{cfg}{dummy_param} )};
+
+	$self->log->info('Starting daemon worker');
+
+	EV::loop();
+	warn "$$ gone $!";
+}
+
+sub stop {
+	my $self = shift;
+	$self->log->error("Child $$ exiting");
+	EV::unloop();
+	return;
+}
+
+=head2 
+	At last, after defining start,stop, check and run functions, ,each Daemond::Lite user chould call runit()
+=cut
+
+runit();
+
+
+1;
